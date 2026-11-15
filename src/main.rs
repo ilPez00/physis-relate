@@ -863,37 +863,39 @@ fn file_hash(path: &str) -> String {
 }
 
 fn physis_core_bin() -> Result<PathBuf> {
-    // Check relative paths common in this project
-    let candidates = [
-        PathBuf::from("../../hermes-physis/bin/physis-core"),
-        PathBuf::from("/home/gio/dev/hermes-physis/bin/physis-core"),
-    ];
-    for c in &candidates {
-        if c.exists() {
-            return Ok(c.clone());
+    // 1. Explicit override.
+    if let Ok(p) = std::env::var("PHYSIS_CORE_BIN") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Ok(p);
         }
+        anyhow::bail!("PHYSIS_CORE_BIN is set but not a file: {}", p.display());
     }
-    // Try PATH
+    // 2. PATH.
     if let Ok(p) = which::which("physis-core") {
         return Ok(p);
     }
     anyhow::bail!(
-        "physis-core binary not found. Expected at ../../hermes-physis/bin/physis-core"
+        "physis-core binary not found. Build it from https://github.com/ilPez00/physis-core \
+         (Apache-2.0) and put it on PATH, or set PHYSIS_CORE_BIN=/path/to/physis-core"
     )
 }
 
 fn find_scan_target() -> Result<PathBuf> {
-    // Use the vendor physis-core src as a convenient real Rust source tree
-    let candidates = [
-        PathBuf::from("../../hermes-physis/vendor/physis-core/src"),
-        PathBuf::from("/home/gio/dev/hermes-physis/vendor/physis-core/src"),
-    ];
-    for c in &candidates {
-        if c.exists() {
-            return Ok(c.clone());
+    // 1. Explicit override.
+    if let Ok(p) = std::env::var("PHYSIS_SCAN_TARGET") {
+        let p = PathBuf::from(p);
+        if p.is_dir() {
+            return Ok(p);
         }
+        anyhow::bail!("PHYSIS_SCAN_TARGET is set but not a directory: {}", p.display());
     }
-    anyhow::bail!("Could not find a scan target directory. Pass --store explicitly.")
+    // 2. Fixture bundled with this crate — works from any CWD, fresh clone included.
+    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/scan-target");
+    if bundled.is_dir() {
+        return Ok(bundled);
+    }
+    anyhow::bail!("no scan target: set PHYSIS_SCAN_TARGET=<dir>, or run from a full checkout")
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

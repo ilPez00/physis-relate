@@ -39,8 +39,18 @@ not DELETE + INSERT).
 Prerequisites:
 - Rust 1.88+ (`rustup update`)
 - Relate CLI (`curl -sSfL https://relatedb.ai/install.sh | bash`)
-- physis-core binary (bundled in [hermes-physis](https://github.com/ilPez00/hermes-physis)
-  or build from [physis-core](https://github.com/ilPez00/physis-core))
+- physis-core v0.2.0 binary, built from [physis-core](https://github.com/ilPez00/physis-core)
+  (Apache-2.0):
+
+```bash
+git clone https://github.com/ilPez00/physis-core
+cd physis-core && cargo build --release
+# either put it on PATH, or point at it explicitly:
+export PHYSIS_CORE_BIN="$PWD/target/release/physis-core"
+```
+
+No other absolute paths are assumed: the demo scans the bundled fixture
+(`fixtures/scan-target/`), overridable with `PHYSIS_SCAN_TARGET=<dir>`.
 
 ```bash
 git clone https://github.com/ilPez00/physis-relate
@@ -59,15 +69,20 @@ export PATH="$HOME/.local/bin:$PATH"
 ## 60-second demo (self-contained)
 
 ```bash
+export PHYSIS_CORE_BIN=/path/to/physis-core   # or put physis-core on PATH
 ./target/release/physis-relate demo
 ```
 
-Runs all 5 steps against the bundled fixture:
-1. physis-core scan of a real Rust source tree
+Runs all 5 steps against the bundled fixture (`fixtures/scan-target/`, ten
+sample Rust modules taken unmodified from physis-core v0.2.0, Apache-2.0 — see
+`fixtures/scan-target/README.md`). Works from any working directory; override
+the tree with `PHYSIS_SCAN_TARGET=<dir>`.
+
+1. physis-core scan of the fixture tree
 2. Import into Relate graph (COLOCATED_WITH + SIMILAR_TO kNN edges)
 3. Semantic query + `similar` → embedding-ranked results, 2-hop context, kNN neighbours
-4. Stale check → all 10 nodes fresh
-5. Modify one file → `STALE …/src/experiments.rs (hash changed)`
+4. Stale check → all nodes fresh
+5. Modify one file → `STALE …/scan-target/experiments.rs (hash changed)`
 
 Expected output ends with:
 
@@ -231,12 +246,12 @@ Run `physis-relate demo` to reproduce:
 
 | Step | Result |
 |---|---|
-| Scan: 59 .rs files → physis-core | 10 coherence nodes (scored 0.927–1.000) |
-| Import into Relate | 10 nodes, 0 skipped, 21 SIMILAR_TO edges (kNN), MERGE-safe |
-| Query "coherence", top 3 | Keyword ranked results + 2-hop context |
+| Scan: 10 sample .rs files → physis-core | 9 coherence nodes (0.926–1.000); files >5 KB are skipped by the scanner |
+| Import into Relate | 9 nodes, 0 skipped, 19 SIMILAR_TO edges (kNN), MERGE-safe |
+| Query "coherence", top 3 | experiments.rs 0.720 · coherence_query.rs 0.687 · coherence_dimensions.rs 0.677 |
 | Query "coherence" `--store` (semantic) | Embedding ranking matches physis-core `search` score-for-score |
-| `similar provenance` | Top neighbour temporal.rs at cosine 0.987 |
-| Stale check (all fresh) | 10/10 fresh |
+| `similar provenance` | temporal.rs sim=0.987 coh=1.000 |
+| Stale check (all fresh) | 9/9 fresh |
 | Stale check (after file edit) | 1 STALE detected correctly |
 
 The semiotic benchmark for physis-core (independent reproducible fixture):
@@ -278,7 +293,8 @@ and [Relate](https://relatedb.ai) (Apache-2.0).
 New code written during the contest window (Nov 11–Dec 11, 2026):
 - `src/main.rs` — all physis-relate application code
 - `README.md`, `Cargo.toml`
-- `fixtures/` (to be added)
+- `fixtures/scan-target/` — ten sample modules from physis-core v0.2.0
+  (Apache-2.0), used as the demo's scan input; not compiled with this crate
 
 Reused prior work with disclosure:
 - physis-core binary and vendor source snapshot (Apache-2.0, hermes-physis)
