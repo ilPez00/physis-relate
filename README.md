@@ -18,7 +18,7 @@ files change.
 physis-core scan <repo>
     ↓ nodes.json (file chunks with coherence scores)
 physis-relate import
-    ↓ Relate graph (nodes + COLOCATED_WITH edges)
+    ↓ Relate graph (nodes + COLOCATED_WITH + SIMILAR_TO edges)
 physis-relate query "token refresh"
     ↓ ranked results + 2-hop context
 physis-relate stale
@@ -64,8 +64,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Runs all 5 steps against the bundled fixture:
 1. physis-core scan of a real Rust source tree
-2. Import into Relate graph
-3. Query: "coherence" → ranked results with snippet
+2. Import into Relate graph (COLOCATED_WITH + SIMILAR_TO kNN edges)
+3. Semantic query + `similar` → embedding-ranked results, 2-hop context, kNN neighbours
 4. Stale check → all 10 nodes fresh
 5. Modify one file → `STALE …/src/experiments.rs (hash changed)`
 
@@ -94,13 +94,27 @@ Output:
 ```
 Nodes imported : 42
 Nodes skipped  : 0
-Edges created  : 7  (COLOCATED_WITH = same file)
+Edges          : 7 COLOCATED_WITH (same file) + 120 SIMILAR_TO (kNN)
 Graph is ready at ./my-graph.rl
 ```
 
 Relate is essential here: without it, the import has nowhere to persist.
 The MERGE-based upsert means re-running import updates existing nodes rather
 than duplicating them.
+
+Two edge types are built at import:
+
+- **`COLOCATED_WITH`** — chunks that share a source file (usually zero when a
+  scan registers one node per file).
+- **`SIMILAR_TO`** — a k-nearest-neighbour graph over the dense embeddings
+  physis-core already computes for every node. Each node keeps its 3 most
+  similar neighbours, with the cosine similarity stored as `r.score`.
+
+Random-projection embeddings (the default, no model required) have a high
+baseline cosine — every pair lands in 0.82–0.99 — so an absolute threshold
+does not discriminate. A top-K graph is the correct construction: it yields a
+real, connected graph regardless of the embedding's absolute scale. Edges are
+batched through one Relate session (stdin), not one process per edge.
 
 ### query — find relevant nodes
 
@@ -116,12 +130,29 @@ Top 5 results (by coherence score):
          Handles token creation, refresh and rotation. refresh_token validates
   ...
 
-  2-hop (colocated with top result):
+  2-hop (same-file + semantically similar to top result):
     [0.887] …/src/auth/session.rs
 ```
 
-The 2-hop traversal uses `COLOCATED_WITH` edges in Relate — files that
-share a coherence node because they were indexed together.
+The 2-hop traversal walks both edge types in Relate: `COLOCATED_WITH` (same
+file) and `SIMILAR_TO` (semantically near). An agent editing `token.rs` sees
+`session.rs` as related context even though the files are not co-located.
+
+#### Semantic mode (`--store`)
+
+Keyword `CONTAINS` is the default. Pass the store directory to rank by
+**embedding similarity** instead:
+
+```bash
+physis-relate query "token refresh" --store ./my-store --db ./my-graph.rl
+```
+
+This embeds the query with the *same* deterministic random-projection function
+physis-core used to build the store (a direct port of `embed.rs`; verified to
+reproduce physis-core's own `search` ranking score-for-score), ranks every node
+by cosine similarity, and then pulls the 2-hop neighbourhood of the top hit
+from Relate. The two systems divide the work: physis-core supplies the vector,
+Relate supplies the relationships.
 
 ### deps — traverse from a named file
 
@@ -129,8 +160,31 @@ share a coherence node because they were indexed together.
 physis-relate deps "auth" --db ./my-graph.rl --depth 2
 ```
 
-Shows all nodes reachable within 2 hops via `COLOCATED_WITH` edges from
-the best-matching auth-related node.
+Shows all nodes reachable within 2 hops via `COLOCATED_WITH|SIMILAR_TO` edges
+from the best-matching auth-related node — the change-impact view: "if I touch
+this file, what else is in its neighbourhood?"
+
+### similar — nearest semantic neighbours of a file
+
+```bash
+physis-relate similar "auth" --db ./my-graph.rl --top 5
+```
+
+One-hop view over `SIMILAR_TO` edges, ranked by the stored cosine score:
+
+```
+Seed: …/src/provenance.rs
+
+Top 4 semantically similar nodes:
+
+  1. sim=0.987 coh=1.000 …/src/temporal.rs
+  2. sim=0.985 coh=0.966 …/src/coherence_dimensions.rs
+  3. sim=0.985 coh=0.971 …/src/contradiction.rs
+  4. sim=0.981 coh=0.973 …/src/config_run.rs
+```
+
+This is the direct answer to "what is this file near?" without an embedding
+call at query time — the edges are already in the graph.
 
 ### stale — detect changed files
 
@@ -177,9 +231,11 @@ Run `physis-relate demo` to reproduce:
 
 | Step | Result |
 |---|---|
-| Scan: 52 .rs files → physis-core | 10 coherence nodes (scored 0.927–1.000) |
-| Import into Relate | 10 nodes, 0 skipped, MERGE-safe |
-| Query "coherence", top 3 | Returns correct ranked results |
+| Scan: 59 .rs files → physis-core | 10 coherence nodes (scored 0.927–1.000) |
+| Import into Relate | 10 nodes, 0 skipped, 21 SIMILAR_TO edges (kNN), MERGE-safe |
+| Query "coherence", top 3 | Keyword ranked results + 2-hop context |
+| Query "coherence" `--store` (semantic) | Embedding ranking matches physis-core `search` score-for-score |
+| `similar provenance` | Top neighbour temporal.rs at cosine 0.987 |
 | Stale check (all fresh) | 10/10 fresh |
 | Stale check (after file edit) | 1 STALE detected correctly |
 
@@ -195,12 +251,16 @@ PHYSIS_CORE_DIR=/tmp/bench ./bin/physis-core bench-semiotic benchmarks/semiotic_
 
 - physis-core produces one node per file (not per function/symbol); symbol-level
   graphs require physis-next's world model (private, commercial)
-- `COLOCATED_WITH` edges connect nodes from the same file; cross-file dependency
-  edges (CALLS, IMPORTS) are not yet implemented in this entry
+- `SIMILAR_TO` edges are a kNN graph over dense embeddings, not a true call/
+  import graph — they capture "semantically near", not "depends on". Real
+  `CALLS`/`IMPORTS` edges need a symbol-level parser (physis-next) and are not
+  in this entry
 - The stale check uses mtime+size, not content hash — a file can be re-saved
   without change and produce a false positive
-- Query is keyword-based (CONTAINS); semantic similarity requires the BGE-small
-  embedder to be enabled (`PHYSIS_SEMANTIC=1`, needs `PHYSIS_MODEL_DIR`)
+- Query is keyword-based (CONTAINS). The graph edges are semantic (from the
+  embeddings); enabling the BGE-small embedder (`PHYSIS_SEMANTIC=1`, needs
+  `PHYSIS_MODEL_DIR`) improves edge quality but is not required — the default
+  random-projection embeddings still produce a usable kNN graph
 
 ---
 

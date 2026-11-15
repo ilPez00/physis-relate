@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
+rand = "0.8"
 relate = "1.0.1"
 serde = "1.0.229"
 serde_json = "1.0.154"
+sha2 = "0.10"
 which = "8.0.6"
