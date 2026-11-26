@@ -2,3 +2,4 @@
 *.rl
 /tmp/
 *.bak
+.physis-next/
