@@ -9,7 +9,10 @@ Neo4j Relate Hackathon 2026
 | `src/main.rs` | All application code: CLI, import, query, deps, stale, demo |
 | `README.md` | Documentation |
 | `Cargo.toml` | Project manifest |
-| `fixtures/scan-target/` | Demo scan input: ten unmodified modules from physis-core v0.2.0 (Apache-2.0) |
+| `VIDEO-SCRIPT.md` | Demo video shot list and submission status |
+| `demo.mp4` | 75 s screen recording of `physis-relate demo` |
+| `fixtures/scan-target/README.md` | Our note describing the fixture |
+| `fixtures/scan-target/*.rs` | Demo scan input: ten unmodified modules from physis-core v0.2.0 (Apache-2.0) |
 | `build-disclosure.md` | This file |
 
 ## Reused prior work (with license)
