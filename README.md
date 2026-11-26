@@ -242,17 +242,23 @@ session, and a local developer query without coordination.
 
 ## Measured results (reproducible)
 
-Run `physis-relate demo` to reproduce:
+Run `physis-relate demo` to reproduce. These numbers are from the current
+binary on 2026-11-26:
 
 | Step | Result |
 |---|---|
-| Scan: 10 sample .rs files → physis-core | 9 coherence nodes (0.926–1.000); files >5 KB are skipped by the scanner |
-| Import into Relate | 9 nodes, 0 skipped, 19 SIMILAR_TO edges (kNN), MERGE-safe |
-| Query "coherence", top 3 | experiments.rs 0.720 · coherence_query.rs 0.687 · coherence_dimensions.rs 0.677 |
-| Query "coherence" `--store` (semantic) | Embedding ranking matches physis-core `search` score-for-score |
-| `similar provenance` | temporal.rs sim=0.987 coh=1.000 |
-| Stale check (all fresh) | 9/9 fresh |
-| Stale check (after file edit) | 1 STALE detected correctly |
+| Scan: 10 sample .rs/.md files → physis-core | 10 coherence nodes loaded (store v2) |
+| Import into Relate | 10 nodes, 0 skipped, 21 SIMILAR_TO edges (kNN), MERGE-safe |
+| Query "coherence" (semantic), top 3 | experiments.rs 0.721 · README.md 0.705 · coherence_query.rs 0.688 |
+| `similar provenance` | temporal.rs sim=0.987 · coherence_dimensions.rs 0.985 · contradiction.rs 0.985 |
+| Stale check (all fresh) | 10/10 fresh |
+| Stale check (after touching temporal.rs) | `STALE …/temporal.rs (hash changed)` — 9 fresh, 1 stale |
+| Demo verdict | `All 5 steps passed.` |
+
+The demo touches a real fixture source file (`temporal.rs`) and restores it byte
+for byte afterwards. An earlier recording touched `scan-index.json` because a
+`physis-next observe` run had left a `.physis-next/` directory inside the
+fixture tree; that is cleaned and `.physis-next/` is now git-ignored here.
 
 The semiotic benchmark for physis-core (independent reproducible fixture):
 ```
